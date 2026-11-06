@@ -1,83 +1,91 @@
-# Voice-Guided Accessibility Overlay
+# ElderlyAssist
 
-An Android overlay that helps older and less confident smartphone users complete tasks in apps they
-don't know how to navigate. The user says what they want — "make the text bigger" — and the overlay
-walks them through it one step at a time, highlighting the exact thing to tap and reading each
-instruction aloud.
+Plenty of people can make a video call but get stuck when they need to make the text on their phone
+bigger. The setting is buried a few screens deep, under a name they wouldn't think to look for, so
+they end up phoning someone to ask. ElderlyAssist is meant for moments like that.
 
-Built in a JetBrains hackathon at NYU Abu Dhabi (September 2026). Placed 3rd of ~40 teams.
+You tap a help button floating on the screen and say what you want, for example "make the text
+bigger". ElderlyAssist then takes you through it one step at a time. It highlights the button you
+need to press and reads the instruction out loud. It never taps anything for you. You press every
+button yourself, so you learn the way there, and nothing changes without you doing it.
 
-## How it works
+We built it at the JetBrains hackathon at NYU Abu Dhabi in September 2026 and came 3rd out of
+about 40 teams.
 
-The overlay runs as an Android `AccessibilityService`, so it can read the current screen's view
-hierarchy and draw on top of whatever app is in the foreground — Settings, WhatsApp, anything.
+## What it does
 
-1. Ask. The user taps a floating help button and speaks a task in plain language.
-2. Match. `VoiceTaskMatcher` maps the spoken phrase to a known task from the task library.
-3. Point. `GuidanceEngine` walks the task's steps against a live stream of screen snapshots,
-   finding the element each step refers to and highlighting it while the step is spoken aloud.
-4. Recover. If nothing on screen matches the current step for 8 seconds the engine reports
-   `Stuck`; after 15 seconds it reports `Lost`, and an LLM is asked to work out where the user
-   actually ended up and how to get them back on track.
+ElderlyAssist runs as an Android accessibility service. That lets it see what's on the screen and
+draw on top of any app, whether that's Settings, WhatsApp or something else.
 
-## Design notes
+1. **You ask.** Tap the help button and say what you're trying to do, in your own words.
+2. **It works out the task.** `VoiceTaskMatcher` matches what you said to a task it knows how to
+   help with.
+3. **It points.** `GuidanceEngine` goes through the task's steps while watching the screen. For each
+   step it finds the right button, highlights it and reads the instruction aloud.
+4. **It notices when you're stuck.** If nothing on screen matches the current step for 8 seconds,
+   it decides you're stuck. After 15 seconds it decides you're lost, and it asks an LLM to work out
+   where you've ended up and how to get you back.
 
-The interesting constraint was keeping the guidance logic testable. `GuidanceEngine` is pure Kotlin
-in `commonMain` — no Android imports, and it never reads the clock itself; callers pass the current
-time in. That makes every state transition, including the timeout-driven `Stuck` and `Lost`
-transitions, reproducible in a unit test with no device and no emulator.
+## How it's put together
 
-The Android layer is kept to the parts that genuinely need a platform: the accessibility service,
-the overlay window, speech recognition, and text-to-speech.
+We wanted to be able to test the guidance logic without a phone. So `GuidanceEngine` is plain
+Kotlin in `commonMain`. It has no Android imports and never reads the clock; whoever calls it passes
+in the current time. Because of that, every step it takes, including the timed "stuck" and "lost"
+ones, can be replayed in an ordinary unit test with no emulator.
 
-## Project layout
+Only the parts that truly need Android live in the Android app: the accessibility service, the
+overlay, speech recognition and text-to-speech.
+
+All the code lives in the `com.elderlyassist` package.
 
 ```
-shared/src/commonMain/kotlin/.../guidance/   Engine, matchers, task definitions (pure Kotlin)
-shared/src/commonTest/                       Unit tests for the engine and matchers
-androidApp/src/main/kotlin/.../accessibility Screen reading and action performing
-androidApp/src/main/kotlin/.../overlay       Floating help button and highlight rendering
-androidApp/src/main/kotlin/.../speech        Speech recognition and text-to-speech
-androidApp/src/main/kotlin/.../llm           LLM-backed recovery when the user gets lost
+shared/src/commonMain/kotlin/.../guidance/    The engine, matchers and task definitions (plain Kotlin)
+shared/src/commonTest/                        Tests for the engine and matchers
+androidApp/src/main/kotlin/.../accessibility  Reading the screen
+androidApp/src/main/kotlin/.../overlay        The help button and the highlights
+androidApp/src/main/kotlin/.../speech         Listening and speaking
+androidApp/src/main/kotlin/.../llm            Getting you back on track when you're lost
 ```
 
-## Running it
+## Trying it yourself
 
-Requires JDK 17+ and the Android SDK.
+You'll need JDK 17 or newer and the Android SDK.
 
 ```bash
 ./gradlew :androidApp:assembleDebug
 ```
 
-Install the APK, then enable the service under **Settings → Accessibility** and grant the
-"draw over other apps" permission.
+Install the APK on your phone. Then switch on ElderlyAssist under **Settings → Accessibility** and
+allow it to draw over other apps.
 
-LLM-backed recovery is optional. To enable it, add keys to `local.properties` (gitignored, never
-committed):
+The "get me back on track" feature uses an LLM and is optional. To turn it on, add your API keys to
+`local.properties`. That file is gitignored, so the keys never get committed:
 
 ```properties
 llmApiKey=your-anthropic-key
 openAiApiKey=your-openai-key
 ```
 
-Without keys the app runs normally; only the `Lost` recovery path is disabled.
+Without keys, everything else works as normal. Only the recovery for when you're lost is switched
+off.
 
-## Tests
+## Running the tests
 
 ```bash
 ./gradlew :shared:jvmTest
 ```
 
-16 tests covering the guidance state machine, confirmation matching, and voice-to-task matching.
+There are 16 tests. They cover the guidance steps, matching your "yes" or "no" answers, and
+matching what you say to a task.
 
-## Status
+## Where it's at
 
-Prototype built under hackathon time pressure. Known limitations:
+This is a hackathon prototype, and it shows in a few places:
 
-- The task library is small and hand-written; tasks are matched against known phrasings rather than
-  interpreted freely.
-- Android only. The repo is a Kotlin Multiplatform project and `desktopApp/` is scaffolding from the
-  template — there is no desktop implementation, since the overlay depends on Android accessibility
-  APIs.
-- Spoken output uses the device's default locale. Multi-language support depends on which TTS
-  voices the device has installed.
+- It only knows a small set of tasks, and we wrote each one by hand. It matches against phrasings
+  it already knows instead of understanding any request.
+- It runs on Android only. The project uses the Kotlin Multiplatform template, so there's a
+  `desktopApp/` folder, but there's nothing in it. The overlay depends on Android's accessibility
+  APIs, so a desktop version wouldn't make much sense.
+- It speaks in your phone's default language. Whether other languages work depends on which
+  text-to-speech voices your phone has installed.
